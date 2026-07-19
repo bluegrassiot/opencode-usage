@@ -14,6 +14,20 @@
         if (d) document.documentElement.classList.add("dark");
       })();
     </script>
+    <style id="usage-dominant-patch">
+      /* Layout override: hide the Quota Status panel and give the Usage Breakdown
+         table the whole screen. Root layout is `grid-rows-[auto_2fr_1fr]`
+         = [status bar] / [quota] / [usage].
+         To show quota as a small strip instead, use:
+           grid-template-rows: auto minmax(0, 30vh) minmax(0, 1fr)
+         and remove the display:none rule below. */
+      .grid-rows-\[auto_2fr_1fr\] {
+        grid-template-rows: auto minmax(0, 1fr) !important;
+      }
+      .grid-rows-\[auto_2fr_1fr\] > div:nth-child(2) {
+        display: none !important;
+      }
+    </style>
   </head>
   <body>
     <div id="root"></div>

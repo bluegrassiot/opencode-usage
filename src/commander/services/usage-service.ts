@@ -19,6 +19,15 @@ export type UsageQueryOpts = {
   monthly?: boolean;
 };
 
+export type SerializedModelStats = {
+  input: number;
+  output: number;
+  cacheWrite: number;
+  cacheRead: number;
+  reasoning: number;
+  cost: number;
+};
+
 export type SerializedProviderStats = {
   input: number;
   output: number;
@@ -27,6 +36,7 @@ export type SerializedProviderStats = {
   reasoning: number;
   cost: number;
   models: string[];
+  modelStats: Record<string, SerializedModelStats>;
 };
 
 export type SerializedDailyStats = {
@@ -43,6 +53,18 @@ export type SerializedDailyStats = {
 };
 
 function serializeProviderStats(ps: ProviderStats): SerializedProviderStats {
+  const modelStats: Record<string, SerializedModelStats> = {};
+  for (const [id, ms] of ps.modelStats) {
+    modelStats[id] = {
+      input: ms.input,
+      output: ms.output,
+      cacheWrite: ms.cacheWrite,
+      cacheRead: ms.cacheRead,
+      reasoning: ms.reasoning,
+      cost: ms.cost,
+    };
+  }
+
   return {
     input: ps.input,
     output: ps.output,
@@ -51,6 +73,7 @@ function serializeProviderStats(ps: ProviderStats): SerializedProviderStats {
     reasoning: ps.reasoning,
     cost: ps.cost,
     models: [...ps.models],
+    modelStats,
   };
 }
 

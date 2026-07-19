@@ -24,6 +24,7 @@ function createDailyStats(
           reasoning: 0,
           cost,
           models: new Set(["claude-opus-4-5"]),
+          modelStats: new Map(),
         },
       ],
     ]),

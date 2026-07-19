@@ -21,6 +21,7 @@ import {
 import {
   type UsageRow,
   type ProviderDetail,
+  type ModelDetail,
   aggregateMonthly,
   formatNumber,
   formatCost,
@@ -49,7 +50,13 @@ type UsageSectionProps = {
   };
 };
 
-function ProviderRow({ detail }: { detail: ProviderDetail }) {
+function ProviderRow({
+  detail,
+  showModels = false,
+}: {
+  detail: ProviderDetail;
+  showModels?: boolean;
+}) {
   const total = detail.input + detail.output;
   return (
     <TableRow className="bg-muted/20 hover:bg-muted/30">
@@ -58,9 +65,11 @@ function ProviderRow({ detail }: { detail: ProviderDetail }) {
         <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
           [{detail.provider}]
         </span>
-        <span className="ml-2 text-[10px] text-muted-foreground">
-          {detail.models.join(", ")}
-        </span>
+        {!showModels && (
+          <span className="ml-2 text-[10px] text-muted-foreground">
+            {detail.models.join(", ")}
+          </span>
+        )}
       </TableCell>
       <TableCell className="text-right font-mono text-[11px] tabular-nums text-muted-foreground">
         {formatNumber(detail.input)}
@@ -72,6 +81,32 @@ function ProviderRow({ detail }: { detail: ProviderDetail }) {
         {formatNumber(total)}
       </TableCell>
       <TableCell className="text-right font-mono text-[11px] tabular-nums text-muted-foreground">
+        {formatCost(detail.cost)}
+      </TableCell>
+    </TableRow>
+  );
+}
+
+function ModelRow({ detail }: { detail: ModelDetail }) {
+  const total = detail.input + detail.output;
+  return (
+    <TableRow className="bg-muted/10 hover:bg-muted/20">
+      <TableCell />
+      <TableCell className="pl-10">
+        <span className="font-mono text-[10px] text-muted-foreground/80">
+          {detail.model}
+        </span>
+      </TableCell>
+      <TableCell className="text-right font-mono text-[10px] tabular-nums text-muted-foreground/80">
+        {formatNumber(detail.input)}
+      </TableCell>
+      <TableCell className="text-right font-mono text-[10px] tabular-nums text-muted-foreground/80">
+        {formatNumber(detail.output)}
+      </TableCell>
+      <TableCell className="text-right font-mono text-[10px] tabular-nums text-muted-foreground/80">
+        {formatNumber(total)}
+      </TableCell>
+      <TableCell className="text-right font-mono text-[10px] tabular-nums text-muted-foreground/80">
         {formatCost(detail.cost)}
       </TableCell>
     </TableRow>
@@ -101,7 +136,13 @@ function CacheRow({ row }: { row: UsageRow }) {
   );
 }
 
-function UsageTable({ rows }: { rows: UsageRow[] }) {
+function UsageTable({
+  rows,
+  showModels,
+}: {
+  rows: UsageRow[];
+  showModels: boolean;
+}) {
   const [expandedDate, setExpandedDate] = useState<string | null>(null);
 
   if (rows.length === 0) {
@@ -173,7 +214,13 @@ function UsageTable({ rows }: { rows: UsageRow[] }) {
               </TableRow>
               {expanded &&
                 row.providerDetails.map((pd) => (
-                  <ProviderRow key={pd.provider} detail={pd} />
+                  <Fragment key={pd.provider}>
+                    <ProviderRow detail={pd} showModels={showModels} />
+                    {showModels &&
+                      pd.modelDetails.map((md) => (
+                        <ModelRow key={md.model} detail={md} />
+                      ))}
+                  </Fragment>
                 ))}
               {expanded && <CacheRow row={row} />}
             </Fragment>
@@ -210,6 +257,7 @@ export function UsageSection({
   onFilterChange,
 }: UsageSectionProps) {
   const [view, setView] = useState<"daily" | "monthly">("daily");
+  const [showModels, setShowModels] = useState(false);
   const monthlyRows = useMemo(() => aggregateMonthly(dailyRows), [dailyRows]);
   const rows = view === "daily" ? dailyRows : monthlyRows;
 
@@ -286,21 +334,31 @@ export function UsageSection({
             className="w-36"
           />
         </div>
-        <div className="ml-auto flex gap-px">
+        <div className="ml-auto flex items-center gap-2">
           <Button
-            variant={view === "daily" ? "default" : "outline"}
+            variant={showModels ? "default" : "outline"}
             size="sm"
-            onClick={() => setView("daily")}
+            onClick={() => setShowModels((v) => !v)}
+            title="Show a per-model breakdown under each provider"
           >
-            Daily
+            Models
           </Button>
-          <Button
-            variant={view === "monthly" ? "default" : "outline"}
-            size="sm"
-            onClick={() => setView("monthly")}
-          >
-            Monthly
-          </Button>
+          <div className="flex gap-px">
+            <Button
+              variant={view === "daily" ? "default" : "outline"}
+              size="sm"
+              onClick={() => setView("daily")}
+            >
+              Daily
+            </Button>
+            <Button
+              variant={view === "monthly" ? "default" : "outline"}
+              size="sm"
+              onClick={() => setView("monthly")}
+            >
+              Monthly
+            </Button>
+          </div>
         </div>
       </div>
 
@@ -357,7 +415,9 @@ export function UsageSection({
         </Card>
       )}
 
-      {usageStatus === "success" && <UsageTable rows={rows} />}
+      {usageStatus === "success" && (
+        <UsageTable rows={rows} showModels={showModels} />
+      )}
     </div>
   );
 }

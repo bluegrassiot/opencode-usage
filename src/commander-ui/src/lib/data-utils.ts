@@ -1,3 +1,13 @@
+export type ModelDetail = {
+  model: string;
+  input: number;
+  output: number;
+  cacheWrite: number;
+  cacheRead: number;
+  reasoning: number;
+  cost: number;
+};
+
 export type ProviderDetail = {
   provider: string;
   input: number;
@@ -7,6 +17,7 @@ export type ProviderDetail = {
   reasoning: number;
   cost: number;
   models: string[];
+  modelDetails: ModelDetail[];
 };
 
 export type UsageRow = {
@@ -41,16 +52,36 @@ export function parseUsageRows(data: unknown): UsageRow[] {
 
       const providerDetails: ProviderDetail[] = Object.entries(
         providerStats
-      ).map(([id, ps]) => ({
-        provider: id,
-        input: Number(ps.input ?? 0),
-        output: Number(ps.output ?? 0),
-        cacheWrite: Number(ps.cacheWrite ?? 0),
-        cacheRead: Number(ps.cacheRead ?? 0),
-        reasoning: Number(ps.reasoning ?? 0),
-        cost: Number(ps.cost ?? 0),
-        models: Array.isArray(ps.models) ? (ps.models as string[]) : [],
-      }));
+      ).map(([id, ps]) => {
+        const modelStats =
+          ps.modelStats && typeof ps.modelStats === "object"
+            ? (ps.modelStats as Record<string, Record<string, unknown>>)
+            : {};
+
+        const modelDetails: ModelDetail[] = Object.entries(modelStats)
+          .map(([model, ms]) => ({
+            model,
+            input: Number(ms.input ?? 0),
+            output: Number(ms.output ?? 0),
+            cacheWrite: Number(ms.cacheWrite ?? 0),
+            cacheRead: Number(ms.cacheRead ?? 0),
+            reasoning: Number(ms.reasoning ?? 0),
+            cost: Number(ms.cost ?? 0),
+          }))
+          .sort((a, b) => b.input + b.output - (a.input + a.output));
+
+        return {
+          provider: id,
+          input: Number(ps.input ?? 0),
+          output: Number(ps.output ?? 0),
+          cacheWrite: Number(ps.cacheWrite ?? 0),
+          cacheRead: Number(ps.cacheRead ?? 0),
+          reasoning: Number(ps.reasoning ?? 0),
+          cost: Number(ps.cost ?? 0),
+          models: Array.isArray(ps.models) ? (ps.models as string[]) : [],
+          modelDetails,
+        };
+      });
 
       return {
         date: String(r.date ?? ""),
@@ -129,8 +160,26 @@ export function aggregateMonthly(rows: UsageRow[]): UsageRow[] {
           for (const m of pd.models) {
             if (!ep.models.includes(m)) ep.models.push(m);
           }
+          // Merge per-model details
+          for (const md of pd.modelDetails) {
+            const em = ep.modelDetails.find((e) => e.model === md.model);
+            if (em) {
+              em.input += md.input;
+              em.output += md.output;
+              em.cacheWrite += md.cacheWrite;
+              em.cacheRead += md.cacheRead;
+              em.reasoning += md.reasoning;
+              em.cost += md.cost;
+            } else {
+              ep.modelDetails.push({ ...md });
+            }
+          }
         } else {
-          existing.providerDetails.push({ ...pd, models: [...pd.models] });
+          existing.providerDetails.push({
+            ...pd,
+            models: [...pd.models],
+            modelDetails: pd.modelDetails.map((md) => ({ ...md })),
+          });
         }
       }
     } else {
@@ -142,6 +191,7 @@ export function aggregateMonthly(rows: UsageRow[]): UsageRow[] {
         providerDetails: row.providerDetails.map((pd) => ({
           ...pd,
           models: [...pd.models],
+          modelDetails: pd.modelDetails.map((md) => ({ ...md })),
         })),
       });
     }

@@ -62,6 +62,7 @@ export function aggregateByDate(
         reasoning: 0,
         cost: 0,
         models: new Set(),
+        modelStats: new Map(),
       };
       stats.providerStats.set(providerId, providerStat);
     }
@@ -72,6 +73,26 @@ export function aggregateByDate(
     providerStat.cacheRead += tokens.cache?.read ?? 0;
     providerStat.reasoning += tokens.reasoning ?? 0;
     providerStat.cost += msgCost;
+
+    // Update per-model stats within this provider
+    let modelStat = providerStat.modelStats.get(modelId);
+    if (!modelStat) {
+      modelStat = {
+        input: 0,
+        output: 0,
+        cacheWrite: 0,
+        cacheRead: 0,
+        reasoning: 0,
+        cost: 0,
+      };
+      providerStat.modelStats.set(modelId, modelStat);
+    }
+    modelStat.input += tokens.input ?? 0;
+    modelStat.output += tokens.output ?? 0;
+    modelStat.cacheWrite += tokens.cache?.write ?? 0;
+    modelStat.cacheRead += tokens.cache?.read ?? 0;
+    modelStat.reasoning += tokens.reasoning ?? 0;
+    modelStat.cost += msgCost;
   }
 
   return dailyStats;
@@ -161,6 +182,7 @@ export function aggregateByMonth(
           reasoning: 0,
           cost: 0,
           models: new Set(),
+          modelStats: new Map(),
         };
         monthStats.providerStats.set(providerId, monthProviderStat);
       }
@@ -172,6 +194,28 @@ export function aggregateByMonth(
       monthProviderStat.cacheRead += providerStat.cacheRead;
       monthProviderStat.reasoning += providerStat.reasoning;
       monthProviderStat.cost += providerStat.cost;
+
+      // Merge per-model stats within the provider
+      for (const [modelId, ms] of providerStat.modelStats) {
+        let monthModelStat = monthProviderStat.modelStats.get(modelId);
+        if (!monthModelStat) {
+          monthModelStat = {
+            input: 0,
+            output: 0,
+            cacheWrite: 0,
+            cacheRead: 0,
+            reasoning: 0,
+            cost: 0,
+          };
+          monthProviderStat.modelStats.set(modelId, monthModelStat);
+        }
+        monthModelStat.input += ms.input;
+        monthModelStat.output += ms.output;
+        monthModelStat.cacheWrite += ms.cacheWrite;
+        monthModelStat.cacheRead += ms.cacheRead;
+        monthModelStat.reasoning += ms.reasoning;
+        monthModelStat.cost += ms.cost;
+      }
     }
   }
 

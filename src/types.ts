@@ -30,6 +30,16 @@ export type MessageJson = {
   };
 };
 
+/** Per-model token/cost breakdown (keyed by modelID within a provider). */
+export type ModelStats = {
+  input: number;
+  output: number;
+  cacheWrite: number;
+  cacheRead: number;
+  reasoning: number;
+  cost: number;
+};
+
 export type ProviderStats = {
   input: number;
   output: number;
@@ -38,6 +48,8 @@ export type ProviderStats = {
   reasoning: number;
   cost: number;
   models: Set<string>;
+  /** Per-model breakdown within this provider, keyed by modelID. */
+  modelStats: Map<string, ModelStats>;
 };
 
 export type DailyStats = {

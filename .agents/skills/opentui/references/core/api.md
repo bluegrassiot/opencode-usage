@@ -86,12 +86,7 @@ interface CommonProps {
     | "space-evenly";
   alignItems?: "flex-start" | "flex-end" | "center" | "stretch" | "baseline";
   alignSelf?:
-    | "auto"
-    | "flex-start"
-    | "flex-end"
-    | "center"
-    | "stretch"
-    | "baseline";
+    "auto" | "flex-start" | "flex-end" | "center" | "stretch" | "baseline";
   alignContent?:
     | "flex-start"
     | "flex-end"

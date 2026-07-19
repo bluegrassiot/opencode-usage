@@ -123,6 +123,32 @@ describe("aggregator", () => {
       expect(stats.providerStats.get("openai")!.input).toBe(2000);
     });
 
+    test("tracks per-model stats within a provider", () => {
+      const timestamp = new Date("2025-12-15").getTime();
+      const messages = [
+        createMessage("grok-4.5", "openrouter", timestamp, 1000, 500),
+        createMessage("grok-4.5", "openrouter", timestamp, 2000, 1000),
+        createMessage("deepseek-v4-pro", "openrouter", timestamp, 4000, 2000),
+      ];
+
+      const result = aggregateByDate(messages);
+      const provider = result
+        .get("2025-12-15")!
+        .providerStats.get("openrouter")!;
+
+      expect(provider.modelStats.size).toBe(2);
+      expect(provider.modelStats.get("grok-4.5")!.input).toBe(3000);
+      expect(provider.modelStats.get("grok-4.5")!.output).toBe(1500);
+      expect(provider.modelStats.get("deepseek-v4-pro")!.input).toBe(4000);
+
+      // Per-model tokens sum to the provider total
+      const modelInputSum = [...provider.modelStats.values()].reduce(
+        (s, m) => s + m.input,
+        0
+      );
+      expect(modelInputSum).toBe(provider.input);
+    });
+
     test("handles messages without timestamp", () => {
       const messages: MessageJson[] = [
         {
@@ -257,6 +283,7 @@ describe("aggregator", () => {
         reasoning: 0,
         cost: 5,
         models: new Set(["claude-opus-4-5"]),
+        modelStats: new Map(),
       });
 
       const stats2 = createDailyStats(
@@ -275,6 +302,7 @@ describe("aggregator", () => {
         reasoning: 0,
         cost: 10,
         models: new Set(["claude-opus-4-5"]),
+        modelStats: new Map(),
       });
 
       const dailyStats = new Map<string, DailyStats>([
@@ -310,6 +338,7 @@ describe("aggregator", () => {
         reasoning: 0,
         cost: 5,
         models: new Set(["claude-opus-4-5"]),
+        modelStats: new Map(),
       });
 
       const stats2 = createDailyStats(
@@ -328,6 +357,7 @@ describe("aggregator", () => {
         reasoning: 0,
         cost: 10,
         models: new Set(["claude-opus-4-5"]),
+        modelStats: new Map(),
       });
 
       const dailyStats = new Map<string, DailyStats>([
@@ -359,6 +389,7 @@ describe("aggregator", () => {
         reasoning: 0,
         cost: 5,
         models: new Set(["claude-opus-4-5"]),
+        modelStats: new Map(),
       });
 
       const stats2 = createDailyStats(
@@ -377,6 +408,7 @@ describe("aggregator", () => {
         reasoning: 0,
         cost: 10,
         models: new Set(["gpt-4o"]),
+        modelStats: new Map(),
       });
 
       const dailyStats = new Map<string, DailyStats>([
@@ -390,6 +422,83 @@ describe("aggregator", () => {
       expect(monthStats.providerStats.size).toBe(2);
       expect(monthStats.providerStats.get("anthropic")!.input).toBe(1000);
       expect(monthStats.providerStats.get("openai")!.input).toBe(2000);
+    });
+
+    test("merges per-model stats across days", () => {
+      const stats1 = createDailyStats(
+        "2025-12-10",
+        ["grok-4.5"],
+        ["openrouter"],
+        1000,
+        500,
+        5
+      );
+      stats1.providerStats.set("openrouter", {
+        input: 1000,
+        output: 500,
+        cacheWrite: 0,
+        cacheRead: 0,
+        reasoning: 0,
+        cost: 5,
+        models: new Set(["grok-4.5"]),
+        modelStats: new Map([
+          [
+            "grok-4.5",
+            {
+              input: 1000,
+              output: 500,
+              cacheWrite: 0,
+              cacheRead: 0,
+              reasoning: 0,
+              cost: 5,
+            },
+          ],
+        ]),
+      });
+
+      const stats2 = createDailyStats(
+        "2025-12-15",
+        ["grok-4.5"],
+        ["openrouter"],
+        2000,
+        1000,
+        10
+      );
+      stats2.providerStats.set("openrouter", {
+        input: 2000,
+        output: 1000,
+        cacheWrite: 0,
+        cacheRead: 0,
+        reasoning: 0,
+        cost: 10,
+        models: new Set(["grok-4.5"]),
+        modelStats: new Map([
+          [
+            "grok-4.5",
+            {
+              input: 2000,
+              output: 1000,
+              cacheWrite: 0,
+              cacheRead: 0,
+              reasoning: 0,
+              cost: 10,
+            },
+          ],
+        ]),
+      });
+
+      const dailyStats = new Map<string, DailyStats>([
+        ["2025-12-10", stats1],
+        ["2025-12-15", stats2],
+      ]);
+
+      const result = aggregateByMonth(dailyStats);
+      const provider = result.get("2025-12")!.providerStats.get("openrouter")!;
+
+      expect(provider.modelStats.size).toBe(1);
+      expect(provider.modelStats.get("grok-4.5")!.input).toBe(3000);
+      expect(provider.modelStats.get("grok-4.5")!.output).toBe(1500);
+      expect(provider.modelStats.get("grok-4.5")!.cost).toBe(15);
     });
   });
 });
