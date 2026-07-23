@@ -1,0 +1,1 @@
+opencode-usage --commander --commander-port 5055
