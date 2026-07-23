@@ -1,6 +1,10 @@
 import { describe, it, expect, beforeEach, afterEach } from "bun:test";
 import { Database } from "bun:sqlite";
-import { createCursor, loadMessagesIncremental } from "../loader.js";
+import {
+  createCursor,
+  loadMessagesIncremental,
+  loadSessions,
+} from "../loader.js";
 import type { MessageJson } from "../types.js";
 import { join } from "node:path";
 import { mkdir, rm } from "node:fs/promises";
@@ -11,12 +15,14 @@ function createTestDb(dir: string): Database {
   db.run(`CREATE TABLE session (
     id TEXT PRIMARY KEY,
     project_id TEXT NOT NULL,
+    parent_id TEXT,
     slug TEXT NOT NULL,
     directory TEXT NOT NULL,
     title TEXT NOT NULL,
     version TEXT NOT NULL,
     time_created INTEGER NOT NULL,
-    time_updated INTEGER NOT NULL
+    time_updated INTEGER NOT NULL,
+    agent TEXT
   )`);
   db.run(`CREATE TABLE message (
     id TEXT PRIMARY KEY,
@@ -27,10 +33,10 @@ function createTestDb(dir: string): Database {
     FOREIGN KEY (session_id) REFERENCES session(id)
   )`);
   db.run(
-    `INSERT INTO session VALUES ('ses-1', 'proj-1', 'test', '/tmp', 'Test', '1.0', 0, 0)`
+    `INSERT INTO session VALUES ('ses-1', 'proj-1', NULL, 'test', '/tmp', 'Test', '1.0', 0, 0, NULL)`
   );
   db.run(
-    `INSERT INTO session VALUES ('ses-2', 'proj-1', 'test2', '/tmp', 'Test2', '1.0', 0, 0)`
+    `INSERT INTO session VALUES ('ses-2', 'proj-1', NULL, 'test2', '/tmp', 'Test2', '1.0', 0, 0, NULL)`
   );
   return db;
 }
@@ -246,5 +252,161 @@ describe("loader - incremental loading (SQLite)", () => {
 
     expect(result.messages[0].id).toBe("msg-abc");
     expect(result.messages[0].sessionID).toBe("ses-1");
+  });
+});
+
+describe("loader - loadSessions (SQLite)", () => {
+  let testDir: string;
+
+  beforeEach(async () => {
+    testDir = join(tmpdir(), `opencode-test-${Date.now()}`);
+    await mkdir(testDir, { recursive: true });
+  });
+
+  afterEach(async () => {
+    try {
+      await rm(testDir, { recursive: true, force: true });
+    } catch {
+      // Ignore cleanup errors
+    }
+  });
+
+  it("loads sessions from populated table", async () => {
+    const db = createTestDb(testDir);
+    db.close();
+
+    const sessions = loadSessions(testDir);
+
+    expect(sessions.size).toBe(2);
+    expect(sessions.get("ses-1")).toEqual({
+      id: "ses-1",
+      title: "Test",
+      slug: "test",
+      parentId: null,
+      agent: null,
+    });
+    expect(sessions.get("ses-2")).toEqual({
+      id: "ses-2",
+      title: "Test2",
+      slug: "test2",
+      parentId: null,
+      agent: null,
+    });
+  });
+
+  it("handles session with empty title", async () => {
+    const db = new Database(join(testDir, "opencode.db"));
+    db.run(`CREATE TABLE session (
+      id TEXT PRIMARY KEY,
+      project_id TEXT NOT NULL,
+      parent_id TEXT,
+      slug TEXT NOT NULL,
+      directory TEXT NOT NULL,
+      title TEXT NOT NULL,
+      version TEXT NOT NULL,
+      time_created INTEGER NOT NULL,
+      time_updated INTEGER NOT NULL,
+      agent TEXT
+    )`);
+    db.run(
+      `INSERT INTO session VALUES ('ses-empty', 'proj-1', NULL, 'empty-slug', '/tmp', '', '1.0', 0, 0, NULL)`
+    );
+    db.close();
+
+    const sessions = loadSessions(testDir);
+
+    expect(sessions.size).toBe(1);
+    expect(sessions.get("ses-empty")).toEqual({
+      id: "ses-empty",
+      title: "",
+      slug: "empty-slug",
+      parentId: null,
+      agent: null,
+    });
+  });
+
+  it("returns empty map for empty session table", async () => {
+    const db = createTestDb(testDir);
+    db.run(`DELETE FROM session`);
+    db.close();
+
+    const sessions = loadSessions(testDir);
+
+    expect(sessions.size).toBe(0);
+  });
+
+  it("returns empty map for invalid storage path", async () => {
+    const sessions = loadSessions("/nonexistent/path");
+
+    expect(sessions.size).toBe(0);
+  });
+
+  it("returns parentId and agent fields when columns are populated", async () => {
+    const db = new Database(join(testDir, "opencode.db"));
+    db.run(`CREATE TABLE session (
+      id TEXT PRIMARY KEY, project_id TEXT NOT NULL, parent_id TEXT,
+      slug TEXT NOT NULL, directory TEXT NOT NULL, title TEXT NOT NULL,
+      version TEXT NOT NULL, time_created INTEGER NOT NULL, time_updated INTEGER NOT NULL,
+      agent TEXT
+    )`);
+    db.run(
+      `INSERT INTO session VALUES ('parent-1', 'p1', NULL, 'parent-slug', '/tmp', 'Parent session', '1.0', 0, 0, 'orchestrator')`
+    );
+    db.run(
+      `INSERT INTO session VALUES ('child-1', 'p1', 'parent-1', 'child-slug', '/tmp', 'Child session', '1.0', 0, 0, 'fixer')`
+    );
+    db.close();
+
+    const result = loadSessions(testDir);
+    expect(result.get("parent-1")!.parentId).toBeNull();
+    expect(result.get("parent-1")!.agent).toBe("orchestrator");
+    expect(result.get("child-1")!.parentId).toBe("parent-1");
+    expect(result.get("child-1")!.agent).toBe("fixer");
+  });
+
+  it("returns parentId null and agent null when columns are NULL", async () => {
+    const db = new Database(join(testDir, "opencode.db"));
+    db.run(`CREATE TABLE session (
+      id TEXT PRIMARY KEY, project_id TEXT NOT NULL, parent_id TEXT,
+      slug TEXT NOT NULL, directory TEXT NOT NULL, title TEXT NOT NULL,
+      version TEXT NOT NULL, time_created INTEGER NOT NULL, time_updated INTEGER NOT NULL,
+      agent TEXT
+    )`);
+    db.run(
+      `INSERT INTO session VALUES ('s1', 'p1', NULL, 'slug', '/tmp', 'Title', '1.0', 0, 0, NULL)`
+    );
+    db.close();
+
+    const result = loadSessions(testDir);
+    expect(result.get("s1")!.parentId).toBeNull();
+    expect(result.get("s1")!.agent).toBeNull();
+  });
+
+  it("loads sessions from legacy schema without parent_id or agent columns", async () => {
+    const db = new Database(join(testDir, "opencode.db"));
+    db.run(`CREATE TABLE session (
+      id TEXT PRIMARY KEY,
+      project_id TEXT NOT NULL,
+      slug TEXT NOT NULL,
+      directory TEXT NOT NULL,
+      title TEXT NOT NULL,
+      version TEXT NOT NULL,
+      time_created INTEGER NOT NULL,
+      time_updated INTEGER NOT NULL
+    )`);
+    db.run(
+      `INSERT INTO session VALUES ('legacy-1', 'proj-1', 'legacy-slug', '/tmp', 'Legacy session', '1.0', 0, 0)`
+    );
+    db.close();
+
+    const result = loadSessions(testDir);
+    expect(result.size).toBe(1);
+    expect(result.get("legacy-1")).toEqual({
+      id: "legacy-1",
+      title: "Legacy session",
+      slug: "legacy-slug",
+      parentId: null,
+      agent: null,
+    });
   });
 });

@@ -11,7 +11,7 @@ import { fileURLToPath } from "node:url";
 import {
   getUsageData,
   type UsageQueryOpts,
-  type SerializedDailyStats,
+  type UsageResponse,
 } from "./services/usage-service.js";
 import { getQuotaData } from "./services/quota-service.js";
 import { getJob, runCommand } from "./services/command-runner.js";
@@ -75,16 +75,14 @@ const UI_DIST = await (async () => {
 const usageWorkerPath = join(__dirname, "services", "usage-worker.ts");
 const canUseWorker = await Bun.file(usageWorkerPath).exists();
 
-async function queryUsage(
-  opts: UsageQueryOpts
-): Promise<SerializedDailyStats[]> {
+async function queryUsage(opts: UsageQueryOpts): Promise<UsageResponse> {
   if (!canUseWorker) return getUsageData(opts);
   return new Promise((resolve, reject) => {
     const worker = new Worker(usageWorkerPath);
     worker.onmessage = (event: MessageEvent) => {
       worker.terminate();
       const msg = event.data as
-        | { ok: true; data: SerializedDailyStats[] }
+        | { ok: true; data: UsageResponse }
         | { ok: false; error: string };
       if (msg.ok) resolve(msg.data);
       else reject(new Error(msg.error));

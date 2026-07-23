@@ -2,14 +2,25 @@
  * Usage data service — thin wrapper over loader + aggregator for the Commander API.
  */
 
-import { loadMessages, getOpenCodeStoragePath } from "../../loader.js";
+import {
+  loadMessages,
+  getOpenCodeStoragePath,
+  loadSessions,
+} from "../../loader.js";
 import {
   aggregateByDate,
   aggregateByMonth,
+  buildParentTrees,
   filterByDays,
   filterByDateRange,
 } from "../../aggregator.js";
-import type { DailyStats, ProviderStats } from "../../types.js";
+import type {
+  DailyStats,
+  ParentTreeClassification,
+  ParentTreeNode,
+  ProviderStats,
+  SessionStats,
+} from "../../types.js";
 
 export type UsageQueryOpts = {
   provider?: string;
@@ -17,6 +28,19 @@ export type UsageQueryOpts = {
   since?: string;
   until?: string;
   monthly?: boolean;
+};
+
+export type UsageResponse = {
+  days: SerializedDailyStats[];
+  sessions: Record<
+    string,
+    {
+      title: string;
+      slug: string;
+      parentId: string | null;
+      agent: string | null;
+    }
+  >;
 };
 
 export type SerializedModelStats = {
@@ -39,6 +63,29 @@ export type SerializedProviderStats = {
   modelStats: Record<string, SerializedModelStats>;
 };
 
+export type SerializedSessionProviderStats = SerializedProviderStats;
+
+export type SerializedSessionStats = {
+  sessionID: string;
+  input: number;
+  output: number;
+  cacheWrite: number;
+  cacheRead: number;
+  reasoning: number;
+  cost: number;
+  providerStats: Record<string, SerializedSessionProviderStats>;
+};
+
+export type SerializedParentTreeNode = {
+  sessionID: string;
+  title: string;
+  agent: string | null;
+  classification: ParentTreeClassification;
+  ownStats: SerializedSessionStats;
+  children: SerializedParentTreeNode[];
+  totalStats: SerializedSessionStats;
+};
+
 export type SerializedDailyStats = {
   date: string;
   input: number;
@@ -50,6 +97,8 @@ export type SerializedDailyStats = {
   models: string[];
   providers: string[];
   providerStats: Record<string, SerializedProviderStats>;
+  sessionStats: Record<string, SerializedSessionStats>;
+  parentGroups: SerializedParentTreeNode[];
 };
 
 function serializeProviderStats(ps: ProviderStats): SerializedProviderStats {
@@ -77,10 +126,47 @@ function serializeProviderStats(ps: ProviderStats): SerializedProviderStats {
   };
 }
 
+function serializeSessionStats(ss: SessionStats): SerializedSessionStats {
+  const sessionProviderStats: Record<string, SerializedSessionProviderStats> =
+    {};
+  for (const [pid, ps] of ss.providerStats) {
+    sessionProviderStats[pid] = serializeProviderStats(ps);
+  }
+  return {
+    sessionID: ss.sessionID,
+    input: ss.input,
+    output: ss.output,
+    cacheWrite: ss.cacheWrite,
+    cacheRead: ss.cacheRead,
+    reasoning: ss.reasoning,
+    cost: ss.cost,
+    providerStats: sessionProviderStats,
+  };
+}
+
+function serializeParentTreeNode(
+  node: ParentTreeNode
+): SerializedParentTreeNode {
+  return {
+    sessionID: node.sessionID,
+    title: node.title,
+    agent: node.agent,
+    classification: node.classification,
+    ownStats: serializeSessionStats(node.ownStats),
+    children: node.children.map(serializeParentTreeNode),
+    totalStats: serializeSessionStats(node.totalStats),
+  };
+}
+
 function serializeDailyStats(stats: DailyStats): SerializedDailyStats {
   const providerStats: Record<string, SerializedProviderStats> = {};
   for (const [id, ps] of stats.providerStats) {
     providerStats[id] = serializeProviderStats(ps);
+  }
+
+  const sessionStats: Record<string, SerializedSessionStats> = {};
+  for (const [id, ss] of stats.sessionStats) {
+    sessionStats[id] = serializeSessionStats(ss);
   }
 
   return {
@@ -94,14 +180,17 @@ function serializeDailyStats(stats: DailyStats): SerializedDailyStats {
     models: [...stats.models],
     providers: [...stats.providers],
     providerStats,
+    sessionStats,
+    parentGroups: [],
   };
 }
 
 export async function getUsageData(
   opts: UsageQueryOpts = {}
-): Promise<SerializedDailyStats[]> {
+): Promise<UsageResponse> {
   const storagePath = getOpenCodeStoragePath();
   const messages = await loadMessages(storagePath, opts.provider);
+  const sessionMap = loadSessions(storagePath);
   let stats = aggregateByDate(messages);
 
   if (opts.days !== undefined) {
@@ -116,10 +205,42 @@ export async function getUsageData(
     stats = aggregateByMonth(stats);
   }
 
-  const result: SerializedDailyStats[] = [];
-  for (const [, entry] of stats) {
-    result.push(serializeDailyStats(entry));
+  // Build parent trees for each day (only for non-monthly view)
+  const parentGroupsByDay = new Map<string, ParentTreeNode[]>();
+  if (!opts.monthly) {
+    for (const [date, dayStats] of stats) {
+      parentGroupsByDay.set(
+        date,
+        buildParentTrees(dayStats.sessionStats, sessionMap)
+      );
+    }
   }
 
-  return result;
+  const result: SerializedDailyStats[] = [];
+  for (const [date, entry] of stats) {
+    const serialized = serializeDailyStats(entry);
+    const parentTrees = parentGroupsByDay.get(date) ?? [];
+    serialized.parentGroups = parentTrees.map(serializeParentTreeNode);
+    result.push(serialized);
+  }
+
+  const sessions: Record<
+    string,
+    {
+      title: string;
+      slug: string;
+      parentId: string | null;
+      agent: string | null;
+    }
+  > = {};
+  for (const [id, info] of sessionMap) {
+    sessions[id] = {
+      title: info.title,
+      slug: info.slug,
+      parentId: info.parentId,
+      agent: info.agent,
+    };
+  }
+
+  return { days: result, sessions };
 }

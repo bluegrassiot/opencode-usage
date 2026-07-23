@@ -40,6 +40,19 @@ export type ModelStats = {
   cost: number;
 };
 
+/** Per-session token/cost breakdown (keyed by sessionID). */
+export type SessionStats = {
+  sessionID: string;
+  input: number;
+  output: number;
+  cacheWrite: number;
+  cacheRead: number;
+  reasoning: number;
+  cost: number;
+  /** Per-provider breakdown within this session, keyed by providerID. */
+  providerStats: Map<string, ProviderStats>;
+};
+
 export type ProviderStats = {
   input: number;
   output: number;
@@ -52,11 +65,38 @@ export type ProviderStats = {
   modelStats: Map<string, ModelStats>;
 };
 
+/**
+ * Classification of a parent tree root node.
+ * - "parent": has children, renders as an expandable parent group
+ * - "standalone": no children, renders as a flat session row
+ * - "orphan": parentId references a missing session, renders flat
+ * - "unknown": the __unknown__ catch-all session, renders flat
+ */
+export type ParentTreeClassification =
+  | "parent"
+  | "standalone"
+  | "orphan"
+  | "unknown";
+
+export type ParentTreeNode = {
+  sessionID: string;
+  title: string;
+  agent: string | null;
+  classification: ParentTreeClassification;
+  /** Direct usage from this session's own messages. */
+  ownStats: SessionStats;
+  /** Child sessions (recursive). */
+  children: ParentTreeNode[];
+  /** Rolled-up total: own + all descendants. */
+  totalStats: SessionStats;
+};
+
 export type DailyStats = {
   date: string;
   models: Set<string>;
   providers: Set<string>;
   providerStats: Map<string, ProviderStats>;
+  sessionStats: Map<string, SessionStats>;
   input: number;
   output: number;
   cacheWrite: number;

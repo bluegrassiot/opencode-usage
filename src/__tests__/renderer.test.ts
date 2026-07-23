@@ -28,6 +28,7 @@ function createDailyStats(
         },
       ],
     ]),
+    sessionStats: new Map(),
     input,
     output,
     cacheWrite: 0,

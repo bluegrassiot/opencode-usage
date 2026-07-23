@@ -12,7 +12,18 @@ export const api = {
       "/api/health"
     ),
   usage: (params?: Record<string, string>) =>
-    apiFetch<unknown>(`/api/usage?${new URLSearchParams(params)}`),
+    apiFetch<{
+      days: unknown[];
+      sessions: Record<
+        string,
+        {
+          title: string;
+          slug: string;
+          parentId: string | null;
+          agent: string | null;
+        }
+      >;
+    }>(`/api/usage?${new URLSearchParams(params)}`),
   quota: () => apiFetch<unknown>("/api/quota"),
   configFiles: () =>
     apiFetch<

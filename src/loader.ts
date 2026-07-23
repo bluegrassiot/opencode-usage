@@ -10,6 +10,14 @@ type MessageRow = {
   data: string;
 };
 
+export type SessionInfo = {
+  id: string;
+  title: string;
+  slug: string;
+  parentId: string | null;
+  agent: string | null;
+};
+
 export function getOpenCodeStoragePath(): string {
   const xdgDataHome =
     process.env.XDG_DATA_HOME ?? join(homedir(), ".local", "share");
@@ -134,5 +142,57 @@ export async function loadMessagesIncremental(
       messages: [],
       cursor: { lastTimestamp: cursor.lastTimestamp },
     };
+  }
+}
+
+export function loadSessions(storagePath: string): Map<string, SessionInfo> {
+  try {
+    const db = openDb(storagePath);
+    try {
+      // Detect which columns the session table actually has so older DBs
+      // without parent_id / agent keep working.
+      const cols = new Set(
+        (
+          db.query(`PRAGMA table_info(session)`).all() as Array<{
+            name: string;
+          }>
+        ).map((c) => c.name)
+      );
+
+      const selectCols = [
+        "id",
+        "title",
+        "slug",
+        cols.has("parent_id") ? "parent_id" : "NULL AS parent_id",
+        cols.has("agent") ? "agent" : "NULL AS agent",
+      ];
+
+      const rows = db
+        .query(`SELECT ${selectCols.join(", ")} FROM session`)
+        .all() as Array<{
+        id: string;
+        title: string;
+        slug: string;
+        parent_id: string | null;
+        agent: string | null;
+      }>;
+
+      const sessions = new Map<string, SessionInfo>();
+      for (const row of rows) {
+        sessions.set(row.id, {
+          id: row.id,
+          title: row.title,
+          slug: row.slug,
+          parentId: row.parent_id,
+          agent: row.agent,
+        });
+      }
+      return sessions;
+    } finally {
+      db.close();
+    }
+  } catch (err) {
+    console.error(`Error loading sessions: ${err}`);
+    return new Map();
   }
 }
